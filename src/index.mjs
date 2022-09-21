@@ -54,29 +54,37 @@ async function connectToWhatsApp () {
   sock.ev.on("messages.upsert", async (m) => {
     for (const message of m.messages) {
       const { remoteJid, participant, fromMe } = message.key;
-      const { conversation, imageMessage } = message.message ?? {};
+
+      const {
+        conversation,
+        imageMessage,
+        extendedTextMessage
+      } = message.message ?? {};
 
       if (fromMe) {
-        if (conversation === "!debug") {
-          console.log("!debug", JSON.stringify(message));
-
-          await sock.sendMessage(
-            remoteJid,
-            { text: `\`\`\`${JSON.stringify(message, null, 2)}\`\`\`` },
-            { quoted: message }
-          );
-        }
-
         if (conversation === "!ligarbot") {
           const [_, suffix] = remoteJid.split('-');
 
-          await db.run(`INSERT INTO groups (suffix) VALUES (?)`, suffix);
-
-          await sock.sendMessage(
-            remoteJid,
-            { text: "bot ligado nesse grupo" },
-            { quoted: message }
+          const [exists] = await db.all(
+            "SELECT * FROM groups WHERE suffix = ?",
+            suffix
           );
+
+          if (!exists) {
+            await db.run(`INSERT INTO groups (suffix) VALUES (?)`, suffix);
+
+            await sock.sendMessage(
+              remoteJid,
+              { text: "bot ligado nesse grupo" },
+              { quoted: message }
+            );
+          } else {
+            await sock.sendMessage(
+              remoteJid,
+              { text: "bot já está ligado nesse grupo" },
+              { quoted: message }
+            );
+          }
         }
 
         if (conversation === "!desligarbot") {
@@ -155,17 +163,30 @@ async function connectToWhatsApp () {
 
       if (conversation === "!mencionartodos") {
         const metadata = await sock.groupMetadata(remoteJid);
-        const mentions = metadata.participants.map(({ id }) => id);
 
-        const text = mentions
-          .map((id) => `@${id.replace("@s.whatsapp.net", "")}`)
-          .join(" ");
-
-        await sock.sendMessage(
-          message.key.remoteJid,
-          { text, mentions },
-          { quoted: message }
+        const isAdmin = metadata.participants.some(({ id, admin }) =>
+          participant === id && admin
         );
+
+        if (isAdmin) {
+          const mentions = metadata.participants.map(({ id }) => id);
+
+          const text = mentions
+            .map((id) => `@${id.replace("@s.whatsapp.net", "")}`)
+            .join(" ");
+
+          await sock.sendMessage(
+            message.key.remoteJid,
+            { text, mentions },
+            { quoted: message }
+          );
+        } else {
+          await sock.sendMessage(
+            message.key.remoteJid,
+            { text: "tu não é admin rapá" },
+            { quoted: message }
+          );
+        }
       }
     }
   });
