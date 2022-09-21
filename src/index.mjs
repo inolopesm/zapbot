@@ -10,6 +10,9 @@ import { promisify } from "util";
 import { parse as parseHTML } from "node-html-parser";
 import { request } from "undici";
 import { randomInt } from "crypto";
+import ytdl from "ytdl-core";
+import FFmpeg from "fluent-ffmpeg";
+import { PassThrough } from "stream";
 
 const { default: makeWASocket } = baileys;
 const db = new sqlite3.Database("db.sqlite3");
@@ -171,7 +174,7 @@ async function connectToWhatsApp () {
           participant === id && admin
         );
 
-        if (isAdmin) {
+        if (isAdmin || fromMe) {
           const mentions = metadata.participants.map(({ id }) => id);
 
           const text = mentions
@@ -207,6 +210,54 @@ async function connectToWhatsApp () {
         await sock.sendMessage(
           message.key.remoteJid,
           { text: `_${phrases[i]}_` },
+          { quoted: message }
+        );
+      }
+
+      if (conversation && conversation.startsWith("!yt ")) {
+        const [_, rawurl] = conversation.split(" ");
+        const url = new URL(rawurl);
+        const id = url.pathname.substring(1);
+        const link = `https://www.youtube.com/watch?v=${id}`;
+
+        const info = await ytdl.getInfo(link);
+
+        const stream = ytdl(link);
+
+        const buffers = [];
+        for await (const data of stream) buffers.push(data);
+
+        await sock.sendMessage(
+          message.key.remoteJid,
+          { video: Buffer.concat(buffers), caption: info.videoDetails.title },
+          { quoted: message }
+        );
+      }
+
+      if (conversation && conversation.startsWith("!ytmp3 ")) {
+        const [_, rawurl] = conversation.split(" ");
+        const url = new URL(rawurl);
+        const id = url.pathname.substring(1);
+        const link = `https://www.youtube.com/watch?v=${id}`;
+
+        const stream = ytdl(link);
+
+        const audio = await new Promise((resolve, reject) => {
+          const target = new PassThrough();
+
+          FFmpeg({ source: stream })
+            .toFormat("opus")
+            .writeToStream(target);
+
+          const buffers = [];
+          target.on("data", (buffer) => buffers.push(buffer));
+          target.on("end", () => resolve(Buffer.concat(buffers)));
+          target.on("error", (err) => reject(err));
+        });
+
+        await sock.sendMessage(
+          message.key.remoteJid,
+          { audio },
           { quoted: message }
         );
       }
