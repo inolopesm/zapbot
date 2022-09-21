@@ -7,6 +7,9 @@ import baileys, {
 import sharp from "sharp";
 import sqlite3 from "sqlite3";
 import { promisify } from "util";
+import { parse as parseHTML } from "node-html-parser";
+import { request } from "undici";
+import { randomInt } from "crypto";
 
 const { default: makeWASocket } = baileys;
 const db = new sqlite3.Database("db.sqlite3");
@@ -187,6 +190,25 @@ async function connectToWhatsApp () {
             { quoted: message }
           );
         }
+      }
+
+      if (conversation === "!pensador") {
+        const response = await request("https://www.pensador.com/recentes/");
+        const data = await response.body.text();
+        const $root = parseHTML(data);
+
+        const phrases = $root
+          .querySelectorAll(".frase.fr")
+          .map(($element) => $element.innerHTML)
+          .map((phrase) => phrase.replace(/&quot;/g, '"'));
+
+        const i = randomInt(0, phrases.length)
+
+        await sock.sendMessage(
+          message.key.remoteJid,
+          { text: `_${phrases[i]}_` },
+          { quoted: message }
+        );
       }
     }
   });
