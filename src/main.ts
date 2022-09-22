@@ -14,9 +14,10 @@ import FFmpeg from "fluent-ffmpeg";
 import { PassThrough } from "stream";
 import { SQLite3Helper } from "./infrastructure/database/helpers";
 import { OnlyOwnerDecorator } from "./application/decorators";
-import { TurnOffBotInteractor, TurnOnBotInteractor } from "./application/interactor";
+import { MentionAllInteractor, TurnOffBotInteractor, TurnOnBotInteractor } from "./application/interactor";
 import { GroupsSQLite3Repository } from "./infrastructure/database/repositories";
 import { Interactor } from "./application/protocols";
+import { GroupParticipantsSQLite3Repository } from "./infrastructure/database/repositories/group-participants.sqlite3-repository";
 
 const makeTurnOnBotInteractor = () => {
   const groupsSQLite3Repository = new GroupsSQLite3Repository();
@@ -39,15 +40,27 @@ const makeTurnOffBotInteractor = () => {
   return new OnlyOwnerDecorator({ interactor: turnOffBotInteractor });
 };
 
+type MakeMentionAllInteractorParams = {
+  waSocket: ReturnType<typeof makeWASocket>;
+};
+
+const makeMentionAllInteractor = ({ waSocket }: MakeMentionAllInteractorParams) => {
+  const groupParticipantsSQLite3Repository = new GroupParticipantsSQLite3Repository({ waSocket });
+
+  return new MentionAllInteractor({
+    findAllGroupParticipantsByRemoteJidRepository: groupParticipantsSQLite3Repository,
+  });
+};
+
 const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
 
-  const sock = makeWASocket({
+  const waSocket = makeWASocket({
     printQRInTerminal: true,
     auth: state,
   });
 
-  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
+  waSocket.ev.on("connection.update", ({ connection, lastDisconnect }) => {
     if (connection === "close") {
       const shouldReconnect =
         (lastDisconnect!.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
@@ -58,9 +71,9 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
     }
   });
 
-  sock.ev.on("creds.update", saveCreds);
+  waSocket.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("messages.upsert", async (m) => {
+  waSocket.ev.on("messages.upsert", async (m) => {
     for (const message of m.messages) {
       const { remoteJid, fromMe, participant } = message.key;
       const { conversation, imageMessage } = message.message ?? {};
@@ -71,14 +84,16 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
       const interactors: Record<string, Interactor> = {
         "!ligarbot": makeTurnOnBotInteractor(),
         "!desligarbot": makeTurnOffBotInteractor(),
+        "!mencionartodos": makeMentionAllInteractor({ waSocket }),
       };
 
       if (conversation) {
         const interactor = interactors[conversation];
 
         if (interactor) {
-          const result = await interactor.execute({ remoteJid, fromMe });
-          await sock.sendMessage(remoteJid, result, { quoted: message });
+          const params = { remoteJid, fromMe, participant };
+          const result = await interactor.execute(params);
+          await waSocket.sendMessage(remoteJid, result, { quoted: message });
         }
       }
 
@@ -98,7 +113,7 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
       }
 
       if (conversation === "!menu") {
-        await sock.sendMessage(
+        await waSocket.sendMessage(
           remoteJid,
           {
             text: [
@@ -117,7 +132,7 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
       }
 
       if (conversation === "!ping") {
-        await sock.sendMessage(
+        await waSocket.sendMessage(
           remoteJid,
           { text: "pong" },
           { quoted: message }
@@ -125,7 +140,7 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
       }
 
       if (conversation === "!s") {
-        await sock.sendMessage(
+        await waSocket.sendMessage(
           remoteJid,
           { text: "tem que enviar uma imagem de preferência QUADRADA com isso na legenda" },
           { quoted: message }
@@ -145,45 +160,17 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
         if (sticker.byteLength > HUNDRED_KB) {
           const length = sticker.byteLength / 1024;
 
-          await sock.sendMessage(
+          await waSocket.sendMessage(
             remoteJid,
             { text: `Figurinha excedeu o limite de 100kb tendo ${length}kb` },
             { quoted: message }
           );
         } else {
-          await sock.sendMessage(
+          await waSocket.sendMessage(
             remoteJid,
             { sticker, mimetype: "image/webp" },
             { quoted: message }
           );
-        }
-
-        if (conversation === "!mencionartodos") {
-          const metadata = await sock.groupMetadata(remoteJid);
-
-          const isAdmin = metadata.participants.some(({ id, admin }) =>
-            participant === id && admin
-          );
-
-          if (isAdmin || fromMe) {
-            const mentions = metadata.participants.map(({ id }) => id);
-
-            const text = mentions
-              .map((id) => `@${id.replace("@s.whatsapp.net", "")}`)
-              .join(" ");
-
-            await sock.sendMessage(
-              remoteJid,
-              { text, mentions },
-              { quoted: message }
-            );
-          } else {
-            await sock.sendMessage(
-              remoteJid,
-              { text: "tu não é admin rapá" },
-              { quoted: message }
-            );
-          }
         }
 
         if (conversation === "!pensador") {
@@ -198,7 +185,7 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
 
           const i = randomInt(0, phrases.length)
 
-          await sock.sendMessage(
+          await waSocket.sendMessage(
             remoteJid,
             { text: `_${phrases[i]}_` },
             { quoted: message }
@@ -207,7 +194,7 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
 
         try {
           if (conversation && conversation.startsWith("!experimental_yt ")) {
-            await sock.sendMessage(
+            await waSocket.sendMessage(
               remoteJid,
               { text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente" },
               { quoted: message }
@@ -223,7 +210,7 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
             for await (const data of stream) buffers.push(data);
             const video = Buffer.concat(buffers);
 
-            await sock.sendMessage(
+            await waSocket.sendMessage(
               remoteJid,
               { video, caption: info.videoDetails.title },
               { quoted: message }
@@ -231,7 +218,7 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
           }
 
           if (conversation && conversation.startsWith("!experimental_ytmp3 ")) {
-            await sock.sendMessage(
+            await waSocket.sendMessage(
               remoteJid,
               { text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente" },
               { quoted: message }
@@ -252,10 +239,10 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
               target.on("error", (err) => reject(err));
             });
 
-            await sock.sendMessage(remoteJid, { audio }, { quoted: message });
+            await waSocket.sendMessage(remoteJid, { audio }, { quoted: message });
           }
         } catch (error) {
-          await sock.sendMessage(
+          await waSocket.sendMessage(
             remoteJid,
             { text: String(error) },
             { quoted: message }
