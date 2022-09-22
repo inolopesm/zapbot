@@ -1,7 +1,3 @@
-export type CreateGroupRepositoryParams = {
-  suffix: string;
-};
-
 export interface CreateGroupRepository {
-  create(params: CreateGroupRepositoryParams): Promise<void>;
+  create(suffix: string): Promise<void>;
 }

@@ -10,12 +10,14 @@ import makeWASocket, {
   useMultiFileAuthState,
 } from "baileys";
 
-import { SQLite3Helper } from "./infrastructure/database/helpers";
-import { OnlyOwnerDecorator } from "./application/decorators";
-import { GroupsSQLite3Repository } from "./infrastructure/database/repositories";
 import { Interactor } from "./application/protocols";
 import { PensadorPhraseRepository } from "./infrastructure/pensador";
-import { GroupParticipantsSQLite3Repository } from "./infrastructure/baileys";
+import { GroupParticipantsBaileysRepository } from "./infrastructure/baileys";
+
+import {
+  GroupsSQLite3Repository,
+  SQLite3Helper,
+} from "./infrastructure/database";
 
 import {
   MentionAllInteractor,
@@ -24,51 +26,65 @@ import {
   TurnOnBotInteractor,
 } from "./application/interactor";
 
+import {
+  OnlyAdminDecorator,
+  OnlyGroupDecorator,
+  OnlyOwnerDecorator,
+  OnlyRegisteredGroupDecorator,
+} from "./application/decorators";
 
-const makeTurnOnBotInteractor = () => {
-  const groupsSQLite3Repository = new GroupsSQLite3Repository();
+const makeTurnOnBotInteractor = () =>
+  new OnlyGroupDecorator(
+    new TurnOnBotInteractor(
+      new GroupsSQLite3Repository(),
+      new GroupsSQLite3Repository()
+    )
+  );
 
-  const turnOnBotInteractor = new TurnOnBotInteractor({
-    createGroupRepository: groupsSQLite3Repository,
-    findOneGroupBySuffixRepository: groupsSQLite3Repository,
-  });
+const makeTurnOffBotInteractor = () =>
+  new OnlyGroupDecorator(
+    new OnlyRegisteredGroupDecorator(
+      new GroupsSQLite3Repository(),
+      new OnlyOwnerDecorator(
+        new TurnOffBotInteractor(new GroupsSQLite3Repository())
+      )
+    )
+  );
 
-  return new OnlyOwnerDecorator({ interactor: turnOnBotInteractor });
-};
+type WASocket = ReturnType<typeof makeWASocket>;
 
-const makeTurnOffBotInteractor = () => {
-  const groupsSQLite3Repository = new GroupsSQLite3Repository();
+const makeOwnerMentionAllInteractor = (waSocket: WASocket) =>
+  new OnlyGroupDecorator(
+    new OnlyRegisteredGroupDecorator(
+      new GroupsSQLite3Repository(),
+      new OnlyOwnerDecorator(
+        new MentionAllInteractor(
+          new GroupParticipantsBaileysRepository(waSocket)
+        )
+      )
+    )
+  );
 
-  const turnOffBotInteractor = new TurnOffBotInteractor({
-    removeGroupBySuffixRepository: groupsSQLite3Repository,
-  });
+const makeAdminMentionAllInteractor = (waSocket: WASocket) =>
+  new OnlyGroupDecorator(
+    new OnlyRegisteredGroupDecorator(
+      new GroupsSQLite3Repository(),
+      new OnlyAdminDecorator(
+        new GroupParticipantsBaileysRepository(waSocket),
+        new MentionAllInteractor(
+          new GroupParticipantsBaileysRepository(waSocket)
+        )
+      )
+    )
+  );
 
-  return new OnlyOwnerDecorator({ interactor: turnOffBotInteractor });
-};
-
-type MakeMentionAllInteractorParams = {
-  waSocket: ReturnType<typeof makeWASocket>;
-};
-
-const makeMentionAllInteractor = ({
-  waSocket,
-}: MakeMentionAllInteractorParams) => {
-  const groupParticipantsSQLite3Repository =
-    new GroupParticipantsSQLite3Repository({ waSocket });
-
-  return new MentionAllInteractor({
-    findAllGroupParticipantsByRemoteJidRepository:
-      groupParticipantsSQLite3Repository,
-  });
-};
-
-const makePensadorInteractor = () => {
-  const pensadorPhraseRepository = new PensadorPhraseRepository();
-
-  return new PensadorInteractor({
-    findOneRandomPensadorPhraseRepository: pensadorPhraseRepository,
-  });
-};
+const makePensadorInteractor = () =>
+  new OnlyGroupDecorator(
+    new OnlyRegisteredGroupDecorator(
+      new GroupsSQLite3Repository(),
+      new PensadorInteractor(new PensadorPhraseRepository())
+    )
+  );
 
 const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
@@ -101,9 +117,10 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
       if (typeof fromMe !== "boolean") continue;
 
       const interactors: Record<string, Interactor> = {
-        "!ligarbot": makeTurnOnBotInteractor(),
-        "!desligarbot": makeTurnOffBotInteractor(),
-        "!mencionartodos": makeMentionAllInteractor({ waSocket }),
+        "!dono ligarbot": makeTurnOnBotInteractor(),
+        "!dono desligarbot": makeTurnOffBotInteractor(),
+        "!dono mencionartodos": makeOwnerMentionAllInteractor(waSocket),
+        "!admin mencionartodos": makeAdminMentionAllInteractor(waSocket),
         "!pensador": makePensadorInteractor(),
       };
 
@@ -140,12 +157,9 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
           remoteJid,
           {
             text: [
-              "!ligarbot",
-              "!desligarbot",
+              ...Object.keys(interactors),
               "!ping",
               "!s",
-              "!pensador",
-              "!mencionartodos",
               "!experimental_yt link_curto_do_video_no_youtube",
               "!experimental_ytmp3 link_curto_do_video_no_youtube",
             ].join("\n"),
@@ -197,71 +211,67 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
             { quoted: message }
           );
         }
+      }
 
-        try {
-          if (conversation && conversation.startsWith("!experimental_yt ")) {
-            await waSocket.sendMessage(
-              remoteJid,
-              {
-                text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente",
-              },
-              { quoted: message }
-            );
-
-            const [_, rawurl] = conversation.split(" ");
-            const url = new URL(rawurl as string);
-            const id = url.pathname.substring(1);
-            const link = `https://www.youtube.com/watch?v=${id}`;
-            const info = await ytdl.getInfo(link);
-            const stream = ytdl(link);
-            const buffers: Buffer[] = [];
-            for await (const data of stream) buffers.push(data);
-            const video = Buffer.concat(buffers);
-
-            await waSocket.sendMessage(
-              remoteJid,
-              { video, caption: info.videoDetails.title },
-              { quoted: message }
-            );
-          }
-
-          if (conversation && conversation.startsWith("!experimental_ytmp3 ")) {
-            await waSocket.sendMessage(
-              remoteJid,
-              {
-                text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente",
-              },
-              { quoted: message }
-            );
-
-            const [_, rawurl] = conversation.split(" ");
-            const url = new URL(rawurl as string);
-            const id = url.pathname.substring(1);
-            const link = `https://www.youtube.com/watch?v=${id}`;
-            const stream = ytdl(link);
-
-            const audio = await new Promise<Buffer>((resolve, reject) => {
-              const target = new PassThrough();
-              FFmpeg({ source: stream }).toFormat("opus").writeToStream(target);
-              const buffers: Buffer[] = [];
-              target.on("data", (buffer) => buffers.push(buffer));
-              target.on("end", () => resolve(Buffer.concat(buffers)));
-              target.on("error", (err) => reject(err));
-            });
-
-            await waSocket.sendMessage(
-              remoteJid,
-              { audio },
-              { quoted: message }
-            );
-          }
-        } catch (error) {
+      try {
+        if (conversation && conversation.startsWith("!experimental_yt ")) {
           await waSocket.sendMessage(
             remoteJid,
-            { text: String(error) },
+            {
+              text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente",
+            },
+            { quoted: message }
+          );
+
+          const [_, rawurl] = conversation.split(" ");
+          const url = new URL(rawurl as string);
+          const id = url.pathname.substring(1);
+          const link = `https://www.youtube.com/watch?v=${id}`;
+          const info = await ytdl.getInfo(link);
+          const stream = ytdl(link);
+          const buffers: Buffer[] = [];
+          for await (const data of stream) buffers.push(data);
+          const video = Buffer.concat(buffers);
+
+          await waSocket.sendMessage(
+            remoteJid,
+            { video, caption: info.videoDetails.title },
             { quoted: message }
           );
         }
+
+        if (conversation && conversation.startsWith("!experimental_ytmp3 ")) {
+          await waSocket.sendMessage(
+            remoteJid,
+            {
+              text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente",
+            },
+            { quoted: message }
+          );
+
+          const [_, rawurl] = conversation.split(" ");
+          const url = new URL(rawurl as string);
+          const id = url.pathname.substring(1);
+          const link = `https://www.youtube.com/watch?v=${id}`;
+          const stream = ytdl(link);
+
+          const audio = await new Promise<Buffer>((resolve, reject) => {
+            const target = new PassThrough();
+            FFmpeg({ source: stream }).toFormat("opus").writeToStream(target);
+            const buffers: Buffer[] = [];
+            target.on("data", (buffer) => buffers.push(buffer));
+            target.on("end", () => resolve(Buffer.concat(buffers)));
+            target.on("error", (err) => reject(err));
+          });
+
+          await waSocket.sendMessage(remoteJid, { audio }, { quoted: message });
+        }
+      } catch (error) {
+        await waSocket.sendMessage(
+          remoteJid,
+          { text: String(error) },
+          { quoted: message }
+        );
       }
     }
   });

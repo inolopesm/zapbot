@@ -1,24 +1,26 @@
+import { randomInt } from "node:crypto";
 import { Interactor } from "../protocols";
-import { FindOneRandomPensadorPhraseRepository } from "../repositories";
-
-export type PensadorInteractorParams = {
-  findOneRandomPensadorPhraseRepository: FindOneRandomPensadorPhraseRepository;
-};
+import { FindAllPensadorPhrasesRepository } from "../repositories";
 
 export class PensadorInteractor implements Interactor {
-  private readonly findOneRandomPensadorPhraseRepository: FindOneRandomPensadorPhraseRepository;
-
-  constructor({ findOneRandomPensadorPhraseRepository }: PensadorInteractorParams) {
-    this.findOneRandomPensadorPhraseRepository = findOneRandomPensadorPhraseRepository;
-  }
+  constructor(
+    private readonly findAllPensadorPhrasesRepository: FindAllPensadorPhrasesRepository
+  ) {}
 
   async execute() {
-    const result = await this.findOneRandomPensadorPhraseRepository.findOneRandom();
+    const results = await this.findAllPensadorPhrasesRepository.findAll();
 
-    if (!result) {
+    if (!results.length) {
       return { text: "Não encontrei nenhuma frase" };
     }
 
-    return { text: result.phrase };
+    const i = randomInt(0, results.length);
+    const result = results[i];
+
+    if (!result) {
+      throw new Error(`value (${i}) is of of range (${results.length})`);
+    }
+
+    return { text: result };
   }
 }

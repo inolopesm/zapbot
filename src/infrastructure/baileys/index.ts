@@ -1,1 +1,1 @@
-export * from "./group-participants.sqlite3-repository";
+export * from "./group-participants.baileys-repository";

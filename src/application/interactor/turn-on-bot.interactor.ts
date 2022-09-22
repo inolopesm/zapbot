@@ -1,43 +1,31 @@
 import { Interactor, InteractorParams } from "../protocols";
 import {
   CreateGroupRepository,
-  FindOneGroupBySuffixRepository,
+  FindAllGroupsRepository,
 } from "../repositories";
 
-export type TurnOnBotInteractorParams = {
-  findOneGroupBySuffixRepository: FindOneGroupBySuffixRepository;
-  createGroupRepository: CreateGroupRepository;
-};
-
 export class TurnOnBotInteractor implements Interactor {
-  private readonly findOneGroupBySuffixRepository: FindOneGroupBySuffixRepository;
-  private readonly createGroupRepository: CreateGroupRepository;
-
-  constructor(params: TurnOnBotInteractorParams) {
-    this.findOneGroupBySuffixRepository = params.findOneGroupBySuffixRepository;
-    this.createGroupRepository = params.createGroupRepository;
-  }
+  constructor(
+    private readonly findAllGroupsRepository: FindAllGroupsRepository,
+    private readonly createGroupRepository: CreateGroupRepository
+  ) {}
 
   async execute({ remoteJid }: InteractorParams) {
-    if (!remoteJid.endsWith("@g.us")) {
-      return { text: "o bot só pode ser ligado em um grupo" };
-    }
-
     const [_, suffix] = remoteJid.split("-");
 
     if (!suffix) {
       throw new Error(`could not get remoteJid (${remoteJid}) suffix`);
     }
 
-    const exists = await this.findOneGroupBySuffixRepository.findOneBySuffix({
-      suffix,
-    });
+    const groups = await this.findAllGroupsRepository.findAll();
 
-    if (exists) {
-      return { text: "bot já está ligado nesse grupo" };
+    for (const group of groups) {
+      if (group.getSuffix() === suffix) {
+        return { text: "bot já está ligado nesse grupo" };
+      }
     }
 
-    await this.createGroupRepository.create({ suffix });
+    await this.createGroupRepository.create(suffix);
 
     return { text: "bot ligado nesse grupo" };
   }

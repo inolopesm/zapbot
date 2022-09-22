@@ -1,16 +1,10 @@
 import { Interactor, InteractorParams } from "../protocols";
 import { RemoveGroupBySuffixRepository } from "../repositories";
 
-export type TurnOffBotInteractorParams = {
-  removeGroupBySuffixRepository: RemoveGroupBySuffixRepository;
-};
-
 export class TurnOffBotInteractor implements Interactor {
-  private readonly removeGroupBySuffixRepository: RemoveGroupBySuffixRepository;
-
-  constructor(params: TurnOffBotInteractorParams) {
-    this.removeGroupBySuffixRepository = params.removeGroupBySuffixRepository;
-  }
+  constructor(
+    private readonly removeGroupBySuffixRepository: RemoveGroupBySuffixRepository
+  ) {}
 
   async execute({ remoteJid }: InteractorParams) {
     if (!remoteJid.endsWith("@g.us")) {
@@ -23,7 +17,7 @@ export class TurnOffBotInteractor implements Interactor {
       throw new Error(`could not get remoteJid (${remoteJid}) suffix`);
     }
 
-    this.removeGroupBySuffixRepository.removeBySuffix({ suffix });
+    this.removeGroupBySuffixRepository.removeBySuffix(suffix);
 
     return { text: "bot desligado desse grupo" };
   }

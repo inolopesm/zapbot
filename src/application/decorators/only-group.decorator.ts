@@ -1,11 +1,11 @@
 import { Interactor, InteractorParams } from "../protocols";
 
-export class OnlyOwnerDecorator implements Interactor {
+export class OnlyGroupDecorator implements Interactor {
   constructor(private readonly interactor: Interactor) {}
 
   async execute(params: InteractorParams) {
-    if (!params.fromMe) {
-      return { text: "apenas o dono do bot pode usar este comando" };
+    if (!params.remoteJid.endsWith("@g.us")) {
+      return { text: "o bot só pode ser ligado em um grupo" };
     }
 
     return await this.interactor.execute(params);
