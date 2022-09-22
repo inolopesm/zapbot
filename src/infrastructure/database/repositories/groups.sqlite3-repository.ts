@@ -17,7 +17,7 @@ export class GroupsSQLite3Repository
 {
   async findOneBySuffix({
     suffix,
-  }: FindOneGroupBySuffixRepositoryParams): Promise<Group | null> {
+  }: FindOneGroupBySuffixRepositoryParams) {
     const sqlite3Helper = SQLite3Helper.getInstance();
     const sql = "SELECT * FROM groups WHERE suffix = ?";
     const [row] = await sqlite3Helper.read({ sql, params: [suffix] });
@@ -33,7 +33,7 @@ export class GroupsSQLite3Repository
 
   async removeBySuffix({
     suffix
-  }: RemoveGroupBySuffixRepositoryParams): Promise<void> {
+  }: RemoveGroupBySuffixRepositoryParams) {
     const sqlite3Helper = SQLite3Helper.getInstance();
     const sql = "DELETE FROM groups WHERE suffix = ?";
     await sqlite3Helper.write({ sql, params: [suffix] });

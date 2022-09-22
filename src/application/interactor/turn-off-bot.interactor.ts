@@ -1,4 +1,4 @@
-import { Interactor, InteractorParams, InteractorResult } from "../protocols";
+import { Interactor, InteractorParams } from "../protocols";
 import { RemoveGroupBySuffixRepository } from "../repositories";
 
 export type TurnOffBotInteractorParams = {
@@ -12,7 +12,7 @@ export class TurnOffBotInteractor implements Interactor {
     this.removeGroupBySuffixRepository = params.removeGroupBySuffixRepository;
   }
 
-  async execute({ remoteJid }: InteractorParams): Promise<InteractorResult> {
+  async execute({ remoteJid }: InteractorParams) {
     if (!remoteJid.endsWith("@g.us")) {
       return { text: "o bot só pode ser desligado em um grupo" };
     }
