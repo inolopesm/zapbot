@@ -12,10 +12,11 @@ import { randomInt } from "crypto";
 import ytdl from "ytdl-core";
 import FFmpeg from "fluent-ffmpeg";
 import { PassThrough } from "stream";
-import { SQLite3Helper } from "./infrastructure/database/helpers/sqlite3.helper";
-import { OnlyOwnerDecorator } from "./application/decorators/only-owner.decorator";
-import { TurnOnBotInteractor } from "./application/interactor/turn-on-bot.interactor";
-import { GroupsSQLite3Repository } from "./infrastructure/database/repositories/groups.sqlite3-repository";
+import { SQLite3Helper } from "./infrastructure/database/helpers";
+import { OnlyOwnerDecorator } from "./application/decorators";
+import { TurnOffBotInteractor, TurnOnBotInteractor } from "./application/interactor";
+import { GroupsSQLite3Repository } from "./infrastructure/database/repositories";
+import { Interactor } from "./application/protocols";
 
 const makeTurnOnBotInteractor = () => {
   const groupsSQLite3Repository = new GroupsSQLite3Repository();
@@ -26,6 +27,16 @@ const makeTurnOnBotInteractor = () => {
   });
 
   return new OnlyOwnerDecorator({ interactor: turnOnBotInteractor });
+};
+
+const makeTurnOffBotInteractor = () => {
+  const groupsSQLite3Repository = new GroupsSQLite3Repository();
+
+  const turnOffBotInteractor = new TurnOffBotInteractor({
+    removeGroupBySuffixRepository: groupsSQLite3Repository,
+  });
+
+  return new OnlyOwnerDecorator({ interactor: turnOffBotInteractor });
 };
 
 const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
@@ -57,25 +68,18 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
       if (!remoteJid) continue;
       if (typeof fromMe !== "boolean") continue;
 
-      if (conversation === "!ligarbot") {
-        const interactor = makeTurnOnBotInteractor();
-        const result = await interactor.execute({ remoteJid, fromMe });
-        await sock.sendMessage(remoteJid, result, { quoted: message });
-      }
+      const interactors: Record<string, Interactor> = {
+        "!ligarbot": makeTurnOnBotInteractor(),
+        "!desligarbot": makeTurnOffBotInteractor(),
+      };
 
-      if (fromMe && conversation === "!desligarbot") {
-        const [_, suffix] = remoteJid.split('-');
+      if (conversation) {
+        const interactor = interactors[conversation];
 
-        await sqlite3Helper.write({
-          sql: "DELETE FROM groups WHERE suffix = ?",
-          params: [suffix]
-        });
-
-        await sock.sendMessage(
-          remoteJid,
-          { text: "bot desligado desse grupo" },
-          { quoted: message }
-        );
+        if (interactor) {
+          const result = await interactor.execute({ remoteJid, fromMe });
+          await sock.sendMessage(remoteJid, result, { quoted: message });
+        }
       }
 
       const rows = await sqlite3Helper.read({ sql: "SELECT suffix FROM groups" });

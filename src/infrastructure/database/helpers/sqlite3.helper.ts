@@ -1,6 +1,5 @@
 import { promisify } from "node:util";
 import SQLite3 from "sqlite3";
-
 import { SQLite3NotConnectedError } from "../errors";
 
 export type SQLite3HelperConnectParams = {
