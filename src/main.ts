@@ -1,23 +1,29 @@
+import { PassThrough } from "node:stream";
+import { Boom } from "@hapi/boom";
+import sharp from "sharp";
+import ytdl from "ytdl-core";
+import FFmpeg from "fluent-ffmpeg";
+
 import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
-  useMultiFileAuthState
+  useMultiFileAuthState,
 } from "baileys";
 
-import { Boom } from '@hapi/boom'
-import sharp from "sharp";
-import { parse as parseHTML } from "node-html-parser";
-import { request } from "undici";
-import { randomInt } from "crypto";
-import ytdl from "ytdl-core";
-import FFmpeg from "fluent-ffmpeg";
-import { PassThrough } from "stream";
 import { SQLite3Helper } from "./infrastructure/database/helpers";
 import { OnlyOwnerDecorator } from "./application/decorators";
-import { MentionAllInteractor, TurnOffBotInteractor, TurnOnBotInteractor } from "./application/interactor";
 import { GroupsSQLite3Repository } from "./infrastructure/database/repositories";
 import { Interactor } from "./application/protocols";
-import { GroupParticipantsSQLite3Repository } from "./infrastructure/database/repositories/group-participants.sqlite3-repository";
+import { PensadorPhraseRepository } from "./infrastructure/pensador";
+import { GroupParticipantsSQLite3Repository } from "./infrastructure/baileys";
+
+import {
+  MentionAllInteractor,
+  PensadorInteractor,
+  TurnOffBotInteractor,
+  TurnOnBotInteractor,
+} from "./application/interactor";
+
 
 const makeTurnOnBotInteractor = () => {
   const groupsSQLite3Repository = new GroupsSQLite3Repository();
@@ -44,11 +50,23 @@ type MakeMentionAllInteractorParams = {
   waSocket: ReturnType<typeof makeWASocket>;
 };
 
-const makeMentionAllInteractor = ({ waSocket }: MakeMentionAllInteractorParams) => {
-  const groupParticipantsSQLite3Repository = new GroupParticipantsSQLite3Repository({ waSocket });
+const makeMentionAllInteractor = ({
+  waSocket,
+}: MakeMentionAllInteractorParams) => {
+  const groupParticipantsSQLite3Repository =
+    new GroupParticipantsSQLite3Repository({ waSocket });
 
   return new MentionAllInteractor({
-    findAllGroupParticipantsByRemoteJidRepository: groupParticipantsSQLite3Repository,
+    findAllGroupParticipantsByRemoteJidRepository:
+      groupParticipantsSQLite3Repository,
+  });
+};
+
+const makePensadorInteractor = () => {
+  const pensadorPhraseRepository = new PensadorPhraseRepository();
+
+  return new PensadorInteractor({
+    findOneRandomPensadorPhraseRepository: pensadorPhraseRepository,
   });
 };
 
@@ -63,7 +81,8 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
   waSocket.ev.on("connection.update", ({ connection, lastDisconnect }) => {
     if (connection === "close") {
       const shouldReconnect =
-        (lastDisconnect!.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+        (lastDisconnect!.error as Boom)?.output?.statusCode !==
+        DisconnectReason.loggedOut;
 
       if (shouldReconnect) {
         connectToWhatsApp(sqlite3Helper);
@@ -85,6 +104,7 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
         "!ligarbot": makeTurnOnBotInteractor(),
         "!desligarbot": makeTurnOffBotInteractor(),
         "!mencionartodos": makeMentionAllInteractor({ waSocket }),
+        "!pensador": makePensadorInteractor(),
       };
 
       if (conversation) {
@@ -97,14 +117,17 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
         }
       }
 
-      const rows = await sqlite3Helper.read({ sql: "SELECT suffix FROM groups" });
+      const rows = await sqlite3Helper.read({
+        sql: "SELECT suffix FROM groups",
+      });
+
       const groups = rows.map(({ suffix }) => suffix);
 
       if (!groups.some((group) => remoteJid.endsWith(group))) continue;
 
       {
         let msg = remoteJid;
-        if (participant) msg += `(${participant})`
+        if (participant) msg += `(${participant})`;
         msg += ": ";
         if (conversation) msg += conversation;
         else if (imageMessage) msg += "[enviou uma imagem]";
@@ -142,7 +165,9 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
       if (conversation === "!s") {
         await waSocket.sendMessage(
           remoteJid,
-          { text: "tem que enviar uma imagem de preferência QUADRADA com isso na legenda" },
+          {
+            text: "tem que enviar uma imagem de preferência QUADRADA com isso na legenda",
+          },
           { quoted: message }
         );
       }
@@ -173,30 +198,13 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
           );
         }
 
-        if (conversation === "!pensador") {
-          const response = await request("https://www.pensador.com/recentes/");
-          const data = await response.body.text();
-          const $root = parseHTML(data);
-
-          const phrases = $root
-            .querySelectorAll(".frase.fr")
-            .map(($element) => $element.innerHTML)
-            .map((phrase) => phrase.replace(/&quot;/g, '"'));
-
-          const i = randomInt(0, phrases.length)
-
-          await waSocket.sendMessage(
-            remoteJid,
-            { text: `_${phrases[i]}_` },
-            { quoted: message }
-          );
-        }
-
         try {
           if (conversation && conversation.startsWith("!experimental_yt ")) {
             await waSocket.sendMessage(
               remoteJid,
-              { text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente" },
+              {
+                text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente",
+              },
               { quoted: message }
             );
 
@@ -220,7 +228,9 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
           if (conversation && conversation.startsWith("!experimental_ytmp3 ")) {
             await waSocket.sendMessage(
               remoteJid,
-              { text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente" },
+              {
+                text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente",
+              },
               { quoted: message }
             );
 
@@ -239,7 +249,11 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
               target.on("error", (err) => reject(err));
             });
 
-            await waSocket.sendMessage(remoteJid, { audio }, { quoted: message });
+            await waSocket.sendMessage(
+              remoteJid,
+              { audio },
+              { quoted: message }
+            );
           }
         } catch (error) {
           await waSocket.sendMessage(

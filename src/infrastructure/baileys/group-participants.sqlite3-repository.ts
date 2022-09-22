@@ -2,8 +2,8 @@ import makeWASocket from "baileys";
 import {
   FindAllGroupParticipantsByRemoteJidRepository,
   FindAllGroupParticipantsByRemoteJidRepositoryParams,
-} from "../../../application/repositories";
-import { GroupParticipant } from "../../../domain/entities";
+} from "../../application/repositories";
+import { GroupParticipant } from "../../domain/entities";
 
 export type GroupParticipantsSQLite3RepositoryParams = {
   waSocket: ReturnType<typeof makeWASocket>;
