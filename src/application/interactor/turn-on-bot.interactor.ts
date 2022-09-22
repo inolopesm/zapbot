@@ -19,6 +19,10 @@ export class TurnOnBotInteractor implements Interactor {
   }
 
   async execute({ remoteJid }: InteractorParams) {
+    if (!remoteJid.endsWith("@g.us")) {
+      return { text: "o bot só pode ser ligado em um grupo" };
+    }
+
     const [_, suffix] = remoteJid.split("-");
 
     if (!suffix) {
