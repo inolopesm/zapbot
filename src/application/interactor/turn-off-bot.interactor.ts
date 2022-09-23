@@ -11,7 +11,18 @@ export class TurnOffBotInteractor implements Interactor {
       return { text: "o bot só pode ser desligado em um grupo" };
     }
 
-    const [_, suffix] = remoteJid.split("-");
+    let suffix: string | undefined;
+
+    // grupos antigos
+    if (remoteJid.match(/\d+-\d+@g\.us/)) {
+      const [_, secondPart] = remoteJid.split("-");
+      suffix = secondPart;
+    }
+
+    // grupos novos
+    if (remoteJid.match(/\d+@g\.us/)) {
+      suffix = remoteJid;
+    }
 
     if (!suffix) {
       throw new Error(`could not get remoteJid (${remoteJid}) suffix`);

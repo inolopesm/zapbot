@@ -11,7 +11,18 @@ export class TurnOnBotInteractor implements Interactor {
   ) {}
 
   async execute({ remoteJid }: InteractorParams) {
-    const [_, suffix] = remoteJid.split("-");
+    let suffix: string | undefined;
+
+    // grupos antigos
+    if (remoteJid.match(/\d+-\d+@g\.us/)) {
+      const [_, secondPart] = remoteJid.split("-");
+      suffix = secondPart;
+    }
+
+    // grupos novos
+    if (remoteJid.match(/\d+@g\.us/)) {
+      suffix = remoteJid;
+    }
 
     if (!suffix) {
       throw new Error(`could not get remoteJid (${remoteJid}) suffix`);
