@@ -1,7 +1,7 @@
-export type GroupParams = {
+export interface GroupParams {
   id: number;
   suffix: string;
-};
+}
 
 export class Group {
   private readonly id: number;
@@ -12,11 +12,11 @@ export class Group {
     this.suffix = params.suffix;
   }
 
-  getId() {
+  getId(): number {
     return this.id;
   }
 
-  getSuffix() {
+  getSuffix(): string {
     return this.suffix;
   }
 }

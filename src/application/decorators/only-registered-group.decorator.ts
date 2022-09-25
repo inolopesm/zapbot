@@ -1,4 +1,4 @@
-import { Interactor, InteractorParams } from "../protocols";
+import { Interactor, InteractorParams, InteractorResult } from "../protocols";
 import { FindAllGroupsRepository } from "../repositories";
 
 export class OnlyRegisteredGroupDecorator implements Interactor {
@@ -7,7 +7,7 @@ export class OnlyRegisteredGroupDecorator implements Interactor {
     private readonly interactor: Interactor
   ) {}
 
-  async execute(params: InteractorParams) {
+  async execute(params: InteractorParams): Promise<InteractorResult> {
     const groups = await this.findAllGroupsRepository.findAll();
 
     for (const group of groups) {

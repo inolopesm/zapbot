@@ -1,4 +1,4 @@
-import { Interactor, InteractorParams } from "../protocols";
+import { Interactor, InteractorParams, InteractorResult } from "../protocols";
 import { FindAllGroupParticipantsByRemoteJidRepository } from "../repositories";
 
 export class OnlyAdminDecorator implements Interactor {
@@ -7,7 +7,7 @@ export class OnlyAdminDecorator implements Interactor {
     private readonly interactor: Interactor
   ) {}
 
-  async execute(params: InteractorParams) {
+  async execute(params: InteractorParams): Promise<InteractorResult> {
     const groupParticipants =
       await this.findAllGroupParticipantsByRemoteJidRepository.findAllByJid(
         params.remoteJid

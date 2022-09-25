@@ -1,4 +1,4 @@
-import { Interactor, InteractorParams } from "../protocols";
+import { Interactor, InteractorParams, InteractorResult } from "../protocols";
 import {
   CreateGroupRepository,
   FindAllGroupsRepository,
@@ -10,21 +10,21 @@ export class TurnOnBotInteractor implements Interactor {
     private readonly createGroupRepository: CreateGroupRepository
   ) {}
 
-  async execute({ remoteJid }: InteractorParams) {
+  async execute({ remoteJid }: InteractorParams): Promise<InteractorResult> {
     let suffix: string | undefined;
 
     // grupos antigos
-    if (remoteJid.match(/\d+-\d+@g\.us/)) {
-      const [_, secondPart] = remoteJid.split("-");
+    if (remoteJid.match(/\d+-\d+@g\.us/) !== null) {
+      const [, secondPart] = remoteJid.split("-");
       suffix = secondPart;
     }
 
     // grupos novos
-    if (remoteJid.match(/\d+@g\.us/)) {
+    if (remoteJid.match(/\d+@g\.us/) !== null) {
       suffix = remoteJid;
     }
 
-    if (!suffix) {
+    if (suffix === undefined) {
       throw new Error(`could not get remoteJid (${remoteJid}) suffix`);
     }
 

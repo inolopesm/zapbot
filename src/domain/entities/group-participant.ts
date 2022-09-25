@@ -1,7 +1,7 @@
-export type GroupParticipantParams = {
+export interface GroupParticipantParams {
   id: string;
   admin: boolean;
-};
+}
 
 export class GroupParticipant {
   private readonly id: string;
@@ -12,15 +12,15 @@ export class GroupParticipant {
     this.admin = params.admin;
   }
 
-  getId() {
+  getId(): string {
     return this.id;
   }
 
-  isAdmin() {
+  isAdmin(): boolean {
     return this.admin;
   }
 
-  getMention() {
+  getMention(): string {
     return `@${this.id.replace("@s.whatsapp.net", "")}`;
   }
 }

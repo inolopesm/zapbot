@@ -1,3 +1,3 @@
 export interface CreateGroupRepository {
-  create(suffix: string): Promise<void>;
+  create: (suffix: string) => Promise<void>;
 }

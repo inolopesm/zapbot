@@ -22,6 +22,7 @@ import {
 import {
   MentionAllInteractor,
   PensadorInteractor,
+  PingInteractor,
   TurnOffBotInteractor,
   TurnOnBotInteractor,
 } from "./application/interactor";
@@ -33,7 +34,7 @@ import {
   OnlyRegisteredGroupDecorator,
 } from "./application/decorators";
 
-const makeTurnOnBotInteractor = () =>
+const makeTurnOnBotInteractor = (): Interactor =>
   new OnlyGroupDecorator(
     new TurnOnBotInteractor(
       new GroupsSQLite3Repository(),
@@ -41,7 +42,7 @@ const makeTurnOnBotInteractor = () =>
     )
   );
 
-const makeTurnOffBotInteractor = () =>
+const makeTurnOffBotInteractor = (): Interactor =>
   new OnlyGroupDecorator(
     new OnlyRegisteredGroupDecorator(
       new GroupsSQLite3Repository(),
@@ -53,7 +54,7 @@ const makeTurnOffBotInteractor = () =>
 
 type WASocket = ReturnType<typeof makeWASocket>;
 
-const makeOwnerMentionAllInteractor = (waSocket: WASocket) =>
+const makeOwnerMentionAllInteractor = (waSocket: WASocket): Interactor =>
   new OnlyGroupDecorator(
     new OnlyRegisteredGroupDecorator(
       new GroupsSQLite3Repository(),
@@ -65,7 +66,7 @@ const makeOwnerMentionAllInteractor = (waSocket: WASocket) =>
     )
   );
 
-const makeAdminMentionAllInteractor = (waSocket: WASocket) =>
+const makeAdminMentionAllInteractor = (waSocket: WASocket): Interactor =>
   new OnlyGroupDecorator(
     new OnlyRegisteredGroupDecorator(
       new GroupsSQLite3Repository(),
@@ -78,7 +79,7 @@ const makeAdminMentionAllInteractor = (waSocket: WASocket) =>
     )
   );
 
-const makePensadorInteractor = () =>
+const makePensadorInteractor = (): Interactor =>
   new OnlyGroupDecorator(
     new OnlyRegisteredGroupDecorator(
       new GroupsSQLite3Repository(),
@@ -86,7 +87,15 @@ const makePensadorInteractor = () =>
     )
   );
 
-const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
+const makePingInteractor = (): Interactor =>
+  new OnlyGroupDecorator(
+    new OnlyRegisteredGroupDecorator(
+      new GroupsSQLite3Repository(),
+      new PingInteractor()
+    )
+  );
+
+const connectToWhatsApp = async (db: SQLite3Helper): Promise<void> => {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
 
   const waSocket = makeWASocket({
@@ -95,202 +104,167 @@ const connectToWhatsApp = async (sqlite3Helper: SQLite3Helper) => {
   });
 
   waSocket.ev.on("connection.update", ({ connection, lastDisconnect }) => {
-    if (connection === "close") {
-      const shouldReconnect =
-        (lastDisconnect!.error as Boom)?.output?.statusCode !==
-        DisconnectReason.loggedOut;
-
-      if (shouldReconnect) {
-        connectToWhatsApp(sqlite3Helper);
-      }
-    }
+    if (connection !== "close") return;
+    if (!lastDisconnect) return;
+    if (!lastDisconnect.error) return;
+    const { statusCode } = (lastDisconnect.error as Boom).output;
+    if (statusCode === DisconnectReason.loggedOut) return;
+    void connectToWhatsApp(db);
   });
 
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   waSocket.ev.on("creds.update", saveCreds);
 
-  waSocket.ev.on("messages.upsert", async (m) => {
-    for (const message of m.messages) {
-      const { remoteJid, fromMe, participant } = message.key;
-      const { conversation, imageMessage } = message.message ?? {};
+  waSocket.ev.on("messages.upsert", ({ messages, type }) => {
+    console.log(`recebendo ${messages.length} do tipo ${type}`);
 
-      if (!remoteJid) continue;
-      if (typeof fromMe !== "boolean") continue;
+    void Promise.all(
+      messages.map(async (message) => {
+        console.log(JSON.stringify(message));
 
-      const interactors: Record<string, Interactor> = {
-        "!dono ligarbot": makeTurnOnBotInteractor(),
-        "!dono desligarbot": makeTurnOffBotInteractor(),
-        "!dono mencionartodos": makeOwnerMentionAllInteractor(waSocket),
-        "!admin mencionartodos": makeAdminMentionAllInteractor(waSocket),
-        "!pensador": makePensadorInteractor(),
-      };
+        const conversation =
+          message.message?.extendedTextMessage?.text ??
+          message.message?.imageMessage?.caption ??
+          message.message?.conversation;
 
-      if (conversation) {
+        const { remoteJid, fromMe, participant } = message.key;
+        const { imageMessage } = message.message ?? {};
+        const quoted = message;
+
+        if (!remoteJid) return;
+        if (typeof fromMe !== "boolean") return;
+        if (!conversation) return;
+
+        const interactors: Record<string, Interactor> = {
+          "!dono ligarbot": makeTurnOnBotInteractor(),
+          "!dono desligarbot": makeTurnOffBotInteractor(),
+          "!dono mencionartodos": makeOwnerMentionAllInteractor(waSocket),
+          "!admin mencionartodos": makeAdminMentionAllInteractor(waSocket),
+          "!pensador": makePensadorInteractor(),
+          "!ping": makePingInteractor(),
+        };
+
         const interactor = interactors[conversation];
 
         if (interactor) {
           const params = { remoteJid, fromMe, participant };
           const result = await interactor.execute(params);
-          await waSocket.sendMessage(remoteJid, result, { quoted: message });
-        }
-      }
-
-      const rows = await sqlite3Helper.read({
-        sql: "SELECT suffix FROM groups",
-      });
-
-      const groups = rows.map(({ suffix }) => suffix);
-
-      if (!groups.some((group) => remoteJid.endsWith(group))) continue;
-
-      {
-        let msg = remoteJid;
-        if (participant) msg += `(${participant})`;
-        msg += ": ";
-        if (conversation) msg += conversation;
-        else if (imageMessage) msg += "[enviou uma imagem]";
-        else msg += "[enviou algo que não reconheço]";
-        console.log(msg);
-      }
-
-      if (conversation === "!menu") {
-        await waSocket.sendMessage(
-          remoteJid,
-          {
-            text: [
-              ...Object.keys(interactors),
-              "!ping",
-              "!s",
-              "!experimental_yt link_curto_do_video_no_youtube",
-              "!experimental_ytmp3 link_curto_do_video_no_youtube",
-            ].join("\n"),
-          },
-          { quoted: message }
-        );
-      }
-
-      if (conversation === "!ping") {
-        await waSocket.sendMessage(
-          remoteJid,
-          { text: "pong" },
-          { quoted: message }
-        );
-      }
-
-      if (conversation === "!s") {
-        await waSocket.sendMessage(
-          remoteJid,
-          {
-            text: "tem que enviar uma imagem de preferência QUADRADA com isso na legenda",
-          },
-          { quoted: message }
-        );
-      }
-
-      if (imageMessage?.caption === "!s") {
-        const buffer = await downloadMediaMessage(message, "buffer", {});
-
-        const sticker = await sharp(buffer as Buffer)
-          .resize(512, 512)
-          .toFormat("webp")
-          .toBuffer();
-
-        const HUNDRED_KB = 100 * 1024;
-
-        if (sticker.byteLength > HUNDRED_KB) {
-          const length = sticker.byteLength / 1024;
-
-          await waSocket.sendMessage(
-            remoteJid,
-            { text: `Figurinha excedeu o limite de 100kb tendo ${length}kb` },
-            { quoted: message }
-          );
-        } else {
-          await waSocket.sendMessage(
-            remoteJid,
-            { sticker, mimetype: "image/webp" },
-            { quoted: message }
-          );
-        }
-      }
-
-      try {
-        if (conversation && conversation.startsWith("!experimental_yt ")) {
-          await waSocket.sendMessage(
-            remoteJid,
-            {
-              text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente",
-            },
-            { quoted: message }
-          );
-
-          const [_, rawurl] = conversation.split(" ");
-          const url = new URL(rawurl as string);
-          const id = url.pathname.substring(1);
-          const link = `https://www.youtube.com/watch?v=${id}`;
-          const info = await ytdl.getInfo(link);
-          const stream = ytdl(link);
-          const buffers: Buffer[] = [];
-          for await (const data of stream) buffers.push(data);
-          const video = Buffer.concat(buffers);
-
-          await waSocket.sendMessage(
-            remoteJid,
-            { video, caption: info.videoDetails.title },
-            { quoted: message }
-          );
+          await waSocket.sendMessage(remoteJid, result, { quoted });
         }
 
-        if (conversation && conversation.startsWith("!experimental_ytmp3 ")) {
-          await waSocket.sendMessage(
-            remoteJid,
-            {
-              text: "Atenção! Este é um comando experimental, então pode não funcionar corretamente",
-            },
-            { quoted: message }
-          );
+        const rows = await db.read("SELECT suffix FROM groups");
+        const groups = rows.map<string>(({ suffix }) => suffix);
+        if (!groups.some((group) => remoteJid.endsWith(group))) return;
 
-          const [_, rawurl] = conversation.split(" ");
-          const url = new URL(rawurl as string);
-          const id = url.pathname.substring(1);
-          const link = `https://www.youtube.com/watch?v=${id}`;
-          const stream = ytdl(link);
+        if (conversation === "!menu") {
+          const text = [
+            ...Object.keys(interactors),
+            "!s",
+            "!experimental_yt link_curto_do_video_no_youtube",
+            "!experimental_ytmp3 link_curto_do_video_no_youtube",
+          ].join("\n");
 
-          const audio = await new Promise<Buffer>((resolve, reject) => {
-            const target = new PassThrough();
-            FFmpeg({ source: stream }).toFormat("opus").writeToStream(target);
+          await waSocket.sendMessage(remoteJid, { text }, { quoted });
+        }
+
+        if (conversation === "!s") {
+          if (!imageMessage) {
+            const text =
+              "tem que enviar uma imagem de preferência QUADRADA com isso na legenda";
+
+            await waSocket.sendMessage(remoteJid, { text }, { quoted });
+          }
+
+          if (imageMessage) {
+            const buffer = await downloadMediaMessage(message, "buffer", {});
+
+            const sticker = await sharp(buffer as Buffer)
+              .resize(512, 512)
+              .toFormat("webp")
+              .toBuffer();
+
+            const HUNDRED_KB = 100 * 1024;
+
+            if (sticker.byteLength > HUNDRED_KB) {
+              const length = sticker.byteLength / 1024;
+              const text = `Figurinha excedeu o limite de 100kb tendo ${length}kb`;
+              await waSocket.sendMessage(remoteJid, { text }, { quoted });
+            }
+
+            if (sticker.byteLength <= HUNDRED_KB) {
+              await waSocket.sendMessage(
+                remoteJid,
+                { sticker, mimetype: "image/webp" },
+                { quoted }
+              );
+            }
+          }
+        }
+
+        try {
+          if (conversation.startsWith("!experimental_yt ")) {
+            const text =
+              "Atenção! Este é um comando experimental, então pode não funcionar corretamente";
+
+            await waSocket.sendMessage(remoteJid, { text }, { quoted });
+            const [, rawurl] = conversation.split(" ");
+            const url = new URL(rawurl as string);
+            const id = url.pathname.substring(1);
+            const link = `https://www.youtube.com/watch?v=${id}`;
+            const info = await ytdl.getInfo(link);
+            const stream = ytdl(link);
             const buffers: Buffer[] = [];
-            target.on("data", (buffer) => buffers.push(buffer));
-            target.on("end", () => resolve(Buffer.concat(buffers)));
-            target.on("error", (err) => reject(err));
-          });
+            for await (const data of stream) buffers.push(data);
+            const video = Buffer.concat(buffers);
 
-          await waSocket.sendMessage(remoteJid, { audio }, { quoted: message });
+            await waSocket.sendMessage(
+              remoteJid,
+              { video, caption: info.videoDetails.title },
+              { quoted }
+            );
+          }
+
+          if (conversation.startsWith("!experimental_ytmp3 ")) {
+            const text =
+              "Atenção! Este é um comando experimental, então pode não funcionar corretamente";
+
+            await waSocket.sendMessage(remoteJid, { text }, { quoted });
+
+            const [, rawurl] = conversation.split(" ");
+            const url = new URL(rawurl as string);
+            const id = url.pathname.substring(1);
+            const link = `https://www.youtube.com/watch?v=${id}`;
+            const stream = ytdl(link);
+
+            const audio = await new Promise<Buffer>((resolve, reject) => {
+              const target = new PassThrough();
+              FFmpeg({ source: stream }).toFormat("opus").writeToStream(target);
+              const buffers: Buffer[] = [];
+              target.on("data", (buffer) => buffers.push(buffer));
+              target.on("end", () => resolve(Buffer.concat(buffers)));
+              target.on("error", (err) => reject(err));
+            });
+
+            await waSocket.sendMessage(remoteJid, { audio }, { quoted });
+          }
+        } catch (error) {
+          const text = String(error);
+          await waSocket.sendMessage(remoteJid, { text }, { quoted });
         }
-      } catch (error) {
-        await waSocket.sendMessage(
-          remoteJid,
-          { text: String(error) },
-          { quoted: message }
-        );
-      }
-    }
+      })
+    );
   });
 };
 
 const main = async (): Promise<void> => {
-  const sqlite3Helper = SQLite3Helper.getInstance();
-  await sqlite3Helper.connect({ filename: "db.sqlite3" });
+  const db = SQLite3Helper.getInstance();
+  await db.connect("db.sqlite3");
 
-  await sqlite3Helper.write({
-    sql: `
-      CREATE TABLE IF NOT EXISTS groups (
-        id INTEGER PRIMARY KEY,
-        suffix TEXT NOT NULL
-      )
-    `,
-  });
+  await db.write(
+    "CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY, suffix TEXT NOT NULL)"
+  );
 
-  connectToWhatsApp(sqlite3Helper);
+  await connectToWhatsApp(db);
 };
 
-main();
+main().catch(console.error);

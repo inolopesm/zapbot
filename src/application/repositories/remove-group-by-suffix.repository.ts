@@ -1,3 +1,3 @@
 export interface RemoveGroupBySuffixRepository {
-  removeBySuffix(suffix: string): Promise<void>;
+  removeBySuffix: (suffix: string) => Promise<void>;
 }

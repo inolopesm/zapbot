@@ -9,13 +9,13 @@ export class GroupParticipantsBaileysRepository
 
   async findAllByJid(jid: string): Promise<GroupParticipant[]> {
     const metadata = await this.waSocket.groupMetadata(jid);
-    const groupParticipants: GroupParticipant[] = [];
 
-    for (const { id, admin } of metadata.participants) {
-      const groupParticipant = new GroupParticipant({ id, admin: !!admin });
-      groupParticipants.push(groupParticipant);
-    }
-
-    return groupParticipants;
+    return metadata.participants.map(
+      ({ id, admin }) =>
+        new GroupParticipant({
+          id,
+          admin: Boolean(admin),
+        })
+    );
   }
 }

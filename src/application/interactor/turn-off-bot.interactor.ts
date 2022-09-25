@@ -1,4 +1,4 @@
-import { Interactor, InteractorParams } from "../protocols";
+import { Interactor, InteractorParams, InteractorResult } from "../protocols";
 import { RemoveGroupBySuffixRepository } from "../repositories";
 
 export class TurnOffBotInteractor implements Interactor {
@@ -6,7 +6,7 @@ export class TurnOffBotInteractor implements Interactor {
     private readonly removeGroupBySuffixRepository: RemoveGroupBySuffixRepository
   ) {}
 
-  async execute({ remoteJid }: InteractorParams) {
+  async execute({ remoteJid }: InteractorParams): Promise<InteractorResult> {
     if (!remoteJid.endsWith("@g.us")) {
       return { text: "o bot só pode ser desligado em um grupo" };
     }
@@ -14,21 +14,21 @@ export class TurnOffBotInteractor implements Interactor {
     let suffix: string | undefined;
 
     // grupos antigos
-    if (remoteJid.match(/\d+-\d+@g\.us/)) {
-      const [_, secondPart] = remoteJid.split("-");
+    if (remoteJid.match(/\d+-\d+@g\.us/) !== null) {
+      const [, secondPart] = remoteJid.split("-");
       suffix = secondPart;
     }
 
     // grupos novos
-    if (remoteJid.match(/\d+@g\.us/)) {
+    if (remoteJid.match(/\d+@g\.us/) !== null) {
       suffix = remoteJid;
     }
 
-    if (!suffix) {
+    if (suffix === undefined) {
       throw new Error(`could not get remoteJid (${remoteJid}) suffix`);
     }
 
-    this.removeGroupBySuffixRepository.removeBySuffix(suffix);
+    await this.removeGroupBySuffixRepository.removeBySuffix(suffix);
 
     return { text: "bot desligado desse grupo" };
   }

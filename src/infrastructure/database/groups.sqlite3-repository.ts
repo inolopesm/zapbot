@@ -12,29 +12,19 @@ export class GroupsSQLite3Repository
     CreateGroupRepository,
     RemoveGroupBySuffixRepository
 {
-  async findAll() {
-    const sqlite3Helper = SQLite3Helper.getInstance();
+  async findAll(): Promise<Group[]> {
     const sql = "SELECT * FROM groups";
-    const rows = await sqlite3Helper.read({ sql });
-    const groups: Group[] = [];
-
-    for (const row of rows) {
-      const group = new Group(row);
-      groups.push(group);
-    }
-
-    return groups;
+    const rows = await SQLite3Helper.getInstance().read(sql);
+    return rows.map((row) => new Group(row));
   }
 
-  async create(suffix: string) {
-    const sqlite3Helper = SQLite3Helper.getInstance();
+  async create(suffix: string): Promise<void> {
     const sql = "INSERT INTO groups (suffix) VALUES (?)";
-    await sqlite3Helper.write({ sql, params: [suffix] });
+    await SQLite3Helper.getInstance().write(sql, [suffix]);
   }
 
-  async removeBySuffix(suffix: string) {
-    const sqlite3Helper = SQLite3Helper.getInstance();
+  async removeBySuffix(suffix: string): Promise<void> {
     const sql = "DELETE FROM groups WHERE suffix = ?";
-    await sqlite3Helper.write({ sql, params: [suffix] });
+    await SQLite3Helper.getInstance().write(sql, [suffix]);
   }
 }
