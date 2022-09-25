@@ -25,7 +25,7 @@ import {
   PingInteractor,
   TurnOffBotInteractor,
   TurnOnBotInteractor,
-} from "./application/interactor";
+} from "./application/interactors";
 
 import {
   OnlyAdminDecorator,
