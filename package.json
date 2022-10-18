@@ -1,37 +1,19 @@
 {
   "name": "@inolopesm/zapbot",
   "description": "bot para whatsapp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "license": "MIT",
   "scripts": {
-    "start": "ts-node --transpile-only ./src/main.ts"
+    "start": "node ./src/main.mjs"
   },
   "dependencies": {
     "baileys": "^4.5.8",
-    "fluent-ffmpeg": "^2.1.2",
-    "node-html-parser": "^6.1.0",
+    "mongodb": "^4.10.0",
     "qrcode-terminal": "^0.12.0",
-    "sharp": "^0.30.7",
-    "sqlite3": "^5.1.1",
-    "undici": "^5.10.0",
-    "ytdl-core": "^4.11.2"
+    "sqlite3": "^5.1.1"
   },
   "engines": {
     "node": "^16.15.1",
     "npm": "^8.11.0"
-  },
-  "devDependencies": {
-    "@types/fluent-ffmpeg": "^2.1.20",
-    "@types/sharp": "^0.31.0",
-    "@typescript-eslint/eslint-plugin": "^5.38.0",
-    "eslint": "^8.24.0",
-    "eslint-config-prettier": "^8.5.0",
-    "eslint-config-standard-with-typescript": "^23.0.0",
-    "eslint-plugin-import": "^2.26.0",
-    "eslint-plugin-n": "^15.3.0",
-    "eslint-plugin-promise": "^6.0.1",
-    "prettier": "^2.7.1",
-    "ts-node": "^10.9.1",
-    "typescript": "^4.8.3"
   }
 }
