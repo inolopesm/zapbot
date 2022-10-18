@@ -1,4 +1,4 @@
-import baileys from 'baileys'
+import baileys from '@adiwajshing/baileys'
 const { BufferJSON, initAuthCreds, proto } = baileys
 
 export const useMongoAuthState = async (colletion) => {
