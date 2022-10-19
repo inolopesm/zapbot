@@ -1,10 +1,15 @@
-import { inspect } from 'node:util'
 import baileys from '@adiwajshing/baileys'
 import { MongoClient } from 'mongodb'
 import sharp from 'sharp'
 import { useMongoAuthState } from './useMongoAuthState.mjs'
+import { makeMongoStore } from './makeMongoStore.mjs'
 
-const { default: makeWASocket, DisconnectReason, downloadMediaMessage } = baileys
+const {
+  default: makeWASocket,
+  DisconnectReason,
+  downloadMediaMessage,
+  BufferJSON,
+} = baileys
 
 let mongoClient
 
@@ -16,8 +21,10 @@ const connectToWhatsApp = async () => {
 
   const baileysCollection = mongoClient.db().collection('auth_info_baileys')
   const groupsCollection = mongoClient.db().collection('groups')
+  const messagesCollection = mongoClient.db().collection('messages')
 
   const { state, saveCreds } = await useMongoAuthState(baileysCollection)
+  const store = await makeMongoStore(messagesCollection)
 
   const waSocket = makeWASocket({ printQRInTerminal: true, auth: state })
 
@@ -29,9 +36,11 @@ const connectToWhatsApp = async () => {
     }
   })
 
-  waSocket.ev.on('messages.upsert', async ({ messages, type }) => {
-    console.log(inspect({ type, messages }, { depth: null, colors: true }))
+  waSocket.ev.on('creds.update', saveCreds)
 
+  store.bind(waSocket.ev)
+
+  waSocket.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return
 
     for (const message of messages) {
@@ -136,6 +145,7 @@ const connectToWhatsApp = async () => {
         for (const group of groups) {
           if (group.suffix === suffix) {
             botAlreadyOff = false
+            break
           }
         }
 
@@ -151,11 +161,93 @@ const connectToWhatsApp = async () => {
       }
 
       if (caption === '!s') {
+        if (!remoteJid.endsWith('@g.us')) {
+          const text = 'este comando só funciona em um grupo'
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
+        let suffix
+
+        // grupos antigos
+        if (remoteJid.match(/\d+-\d+@g\.us/)) {
+          const [, secondPart] = remoteJid.split("-");
+          suffix = secondPart;
+        }
+
+        // grupos novos
+        if (remoteJid.match(/\d+@g\.us/)) {
+          suffix = remoteJid;
+        }
+
+        if (!suffix) {
+          const text = `não consegui pegar o sufixo do remoteJid (${remoteJid})`
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
+        const groups = await groupsCollection.find().toArray()
+        let allowed = false
+
+        for (const group of groups) {
+          if (group.suffix === suffix) {
+            allowed = false
+          }
+        }
+
+        if (!allowed) {
+          const text = 'o bot está desligado nesse grupo'
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
         const buffer = await downloadMediaMessage(message, "buffer", {})
         const image = sharp(buffer)
-        const { width, height } = await image.metadata()
-        console.log({ width, height })
-        console.log('width - height', width - height)
+
+        const sticker = await image.resize(512).toFormat("webp").toBuffer()
+        const HUNDRED_KB = 100 * 1024
+
+        if (sticker.byteLength > HUNDRED_KB) {
+          const length = sticker.byteLength / 1024
+          const text = `Figurinha excedeu o limite de 100kb tendo ${length}kb`
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
+        await waSocket.sendMessage(remoteJid, { sticker, mimetype: "image/webp" }, { quoted })
+      }
+
+      if (message.message.extendedTextMessage?.text === '!s') {
+        const groups = await groupsCollection.find().toArray()
+        let allowed = false
+
+        for (const group of groups) {
+          if (group.suffix === suffix) {
+            allowed = false
+          }
+        }
+
+        if (!allowed) {
+          const text = 'o bot está desligado nesse grupo'
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
+        const document = await messagesCollection.findOne({
+          'key.id':  message.message.extendedTextMessage.contextInfo.stanzaId,
+        })
+
+        if (!document) {
+          const text = 'Não foi possível recuperar a mensagem respondida'
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
+        const { _id, ...quotedMessage } = document
+        quotedMessage.message = JSON.parse(quotedMessage.message, BufferJSON.reviver)
+
+        const buffer = await downloadMediaMessage(quotedMessage, "buffer", {})
+        const image = sharp(buffer)
 
         const sticker = await image.resize(512).toFormat("webp").toBuffer()
         const HUNDRED_KB = 100 * 1024
@@ -171,8 +263,6 @@ const connectToWhatsApp = async () => {
       }
     }
   })
-
-  waSocket.ev.on('creds.update', saveCreds)
 }
 
 connectToWhatsApp()
