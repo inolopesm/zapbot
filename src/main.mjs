@@ -192,6 +192,7 @@ const connectToWhatsApp = async () => {
         for (const group of groups) {
           if (group.suffix === suffix) {
             allowed = false
+            break
           }
         }
 
@@ -217,13 +218,33 @@ const connectToWhatsApp = async () => {
         await waSocket.sendMessage(remoteJid, { sticker, mimetype: "image/webp" }, { quoted })
       }
 
-      if (message.message.extendedTextMessage?.text === '!s') {
+      if (message.message?.extendedTextMessage?.text === '!s') {
+        let suffix
+
+        // grupos antigos
+        if (remoteJid.match(/\d+-\d+@g\.us/)) {
+          const [, secondPart] = remoteJid.split("-");
+          suffix = secondPart;
+        }
+
+        // grupos novos
+        if (remoteJid.match(/\d+@g\.us/)) {
+          suffix = remoteJid;
+        }
+
+        if (!suffix) {
+          const text = `não consegui pegar o sufixo do remoteJid (${remoteJid})`
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
         const groups = await groupsCollection.find().toArray()
         let allowed = false
 
         for (const group of groups) {
           if (group.suffix === suffix) {
-            allowed = false
+            allowed = true
+            break
           }
         }
 
@@ -260,6 +281,62 @@ const connectToWhatsApp = async () => {
         }
 
         await waSocket.sendMessage(remoteJid, { sticker, mimetype: "image/webp" }, { quoted })
+      }
+
+      if (conversation === "!mencionartodos") {
+        if (!fromMe) {
+          const text = 'este comando só o dono pode usar'
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
+        if (!remoteJid.endsWith('@g.us')) {
+          const text = 'este comando só funciona em um grupo'
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
+        let suffix
+
+        // grupos antigos
+        if (remoteJid.match(/\d+-\d+@g\.us/)) {
+          const [, secondPart] = remoteJid.split("-");
+          suffix = secondPart;
+        }
+
+        // grupos novos
+        if (remoteJid.match(/\d+@g\.us/)) {
+          suffix = remoteJid;
+        }
+
+        if (!suffix) {
+          const text = `não consegui pegar o sufixo do remoteJid (${remoteJid})`
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
+        const groups = await groupsCollection.find().toArray()
+        let allowed = false
+
+        for (const group of groups) {
+          if (group.suffix === suffix) {
+            allowed = true
+            break
+          }
+        }
+
+        if (!allowed) {
+          const text = 'o bot está desligado nesse grupo'
+          await waSocket.sendMessage(remoteJid, { text }, { quoted })
+          continue
+        }
+
+        const metadata = await waSocket.groupMetadata(remoteJid)
+
+        const mentions = metadata.participants.map(({ id }) => id)
+        const text = mentions.map((id) => `@${id.replace('@s.whatsapp.net', '')}`).join(' ')
+
+        await waSocket.sendMessage(remoteJid, { text, mentions }, { quoted })
       }
     }
   })
