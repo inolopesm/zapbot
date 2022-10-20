@@ -191,7 +191,7 @@ const connectToWhatsApp = async () => {
 
         for (const group of groups) {
           if (group.suffix === suffix) {
-            allowed = false
+            allowed = true
             break
           }
         }
